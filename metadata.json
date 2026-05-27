@@ -1,0 +1,5 @@
+{
+  "name": "SafeStay Emergency Hub",
+  "description": "AI-powered emergency response dashboard for hotels and restaurants. Analyzes guest messages for crises and coordinates rapid response with staff and emergency services.",
+  "requestFramePermissions": ["geolocation", "microphone"]
+}
