@@ -23,14 +23,14 @@ export function localHeuristicAnalysis(message: string): EmergencyAnalysis {
     'air conditioning', 'heater', 'remote', 'tv', 'television', 'toiletries', 
     'luggage', 'baggage', 'check out', 'checkout', 'check in', 'checkin', 
     'valet', 'parking', 'spoon', 'fork', 'plate', 'napkin', 'bulb', 'light bulb',
-    'dust', 'iron', 'hair dryer'
+    'dust', 'iron', 'hair dryer', 'dirty', 'floor' // Added 'dirty' and 'floor' here
   ];
   
   const isHousekeeping = housekeepingKeywords.some(kw => msg.includes(kw));
   
   let category: 'Medical' | 'Fire' | 'Security' | 'Hazard' | 'Other' = 'Other';
   let severity: 'Low' | 'Medium' | 'High' | 'Critical' = 'Low';
-  let suggestedAction = "Contact management immediately for critical review.";
+  let suggestedAction = "Route to housekeeping / maintenance queue.";
   let authoritiesToNotify: string[] = [];
   
   // Fire incidents
@@ -55,23 +55,16 @@ export function localHeuristicAnalysis(message: string): EmergencyAnalysis {
     authoritiesToNotify = ["Local Police Department"];
   } 
   // Hazard incidents
-  else if (msg.includes('flood') || msg.includes('leak') || msg.includes('gas') || msg.includes('wire') || msg.includes('electric') || msg.includes('structural') || msg.includes('pipe') || msg.includes('spill') || msg.includes('toxic')) {
+  else if (msg.includes('flood') || msg.includes('gas') || msg.includes('wire') || msg.includes('electric') || msg.includes('structural') || msg.includes('pipe') || msg.includes('toxic')) {
+    // Removed general 'leak' and 'spill' to prevent minor shower leaks or floor spills from triggering hazards
     category = 'Hazard';
     severity = 'Medium';
     suggestedAction = "Isolate hazard section immediate border. Notify standby facility engineering team and isolate mains.";
     authoritiesToNotify = ["Building Engineers"];
   }
 
-  // Determine if it qualifies as an emergency
-  const isEmergency = !isHousekeeping && (
-    category !== 'Other' || 
-    msg.includes('urgent') || 
-    msg.includes('emergency') || 
-    msg.includes('help') || 
-    msg.includes('danger') || 
-    msg.includes('hurt') ||
-    msg.length > 5 // Non-empty message that isn't housekeeping
-  );
+  // FIXED HEURISTIC LOGIC: It is an emergency ONLY if it matches a critical category and is NOT housekeeping
+  const isEmergency = !isHousekeeping && category !== 'Other';
 
   return {
     isEmergency: isEmergency,
@@ -92,17 +85,24 @@ export async function analyzeEmergency(message: string): Promise<EmergencyAnalys
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash", // Update to a modern stable flash model as default
+      model: "gemini-2.5-flash",
       contents: `Analyze the following message from a hotel/restaurant guest. 
-      Message: "${message}"
-      
-      Strictly classify this message:
-      1. isEmergency: True ONLY if there is an immediate threat to life, safety, or property (e.g., fire, medical collapse, active crime, major flood).
-      2. isHousekeeping: True if the request is for routine services like towels, cleaning, room service, extra pillows, or non-urgent maintenance.
-      
-      If it is housekeeping or a routine service request, isEmergency MUST be false.`,
+      Message: "${message}"`,
       config: {
         responseMimeType: "application/json",
+        // FIXED: Added strict System Instructions with Few-Shot examples inside the config block
+        systemInstruction: `You are a strict property management triage AI. Your sole job is to classify user requests into either EMERGENCY or ROUTINE HOUSEKEEPING.
+
+CRITICAL RULES:
+1. isEmergency must be true ONLY if there is an immediate, active threat to human life, safety, or severe property structural damage (e.g., active fires, medical crises, active crime, severe pipe burst flooding).
+2. isHousekeeping must be true for ANY cleaning, comfort, routine service, or non-dangerous maintenance requests (e.g., dirty floor, spilled water, trash full, broken shower, AC not cooling, Wi-Fi down, need extra towels).
+3. If isHousekeeping is true, isEmergency MUST be false.
+
+FEW-SHOT EXAMPLES:
+- "The floor is dirty in the hallway" -> isEmergency: false, isHousekeeping: true, category: "Other", severity: "Low"
+- "My shower is not working" -> isEmergency: false, isHousekeeping: true, category: "Other", severity: "Low"
+- "There is a fire in room 302" -> isEmergency: true, isHousekeeping: false, category: "Fire", severity: "Critical"
+- "A guest collapsed and is unconscious" -> isEmergency: true, isHousekeeping: false, category: "Medical", severity: "High"`,
         responseSchema: {
           type: Type.OBJECT,
           properties: {
