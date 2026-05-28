@@ -16,58 +16,64 @@ export interface EmergencyAnalysis {
 export function localHeuristicAnalysis(message: string): EmergencyAnalysis {
   const msg = message.toLowerCase().trim();
   
-  // Custom definitions for emergency classification
+  // Housekeeping terms
   const housekeepingKeywords = [
     'towel', 'blanket', 'pillow', 'shampoo', 'soap', 'clean', 'housekeeping', 
     'room service', 'food', 'drink', 'water', 'ice', 'wifi', 'wi-fi', 'ac ', 
     'air conditioning', 'heater', 'remote', 'tv', 'television', 'toiletries', 
     'luggage', 'baggage', 'check out', 'checkout', 'check in', 'checkin', 
     'valet', 'parking', 'spoon', 'fork', 'plate', 'napkin', 'bulb', 'light bulb',
-    'dust', 'iron', 'hair dryer', 'dirty', 'floor' // Added 'dirty' and 'floor' here
+    'dust', 'iron', 'hair dryer', 'dirty', 'floor'
   ];
   
-  const isHousekeeping = housekeepingKeywords.some(kw => msg.includes(kw));
+  // CRITICAL: Even if housekeeping words exist, checking for overriding medical/emergency signs
+  const hasSevereMedicalSigns = msg.includes('breath') || msg.includes('foam') || msg.includes('mouth') || msg.includes('unconscious') || msg.includes('chok') || msg.includes('bleed');
+  
+  const isHousekeeping = housekeepingKeywords.some(kw => msg.includes(kw)) && !hasSevereMedicalSigns;
   
   let category: 'Medical' | 'Fire' | 'Security' | 'Hazard' | 'Other' = 'Other';
   let severity: 'Low' | 'Medium' | 'High' | 'Critical' = 'Low';
   let suggestedAction = "Route to housekeeping / maintenance queue.";
   let authoritiesToNotify: string[] = [];
   
-  // Fire incidents
-  if (msg.includes('fire') || msg.includes('smoke') || msg.includes('burning') || msg.includes('explosion') || msg.includes('flame')) {
-    category = 'Fire';
-    severity = 'Critical';
-    suggestedAction = "Activate nearest fire alarm pull station. Evacuate building immediately. Proceed to safely designated muster points.";
-    authoritiesToNotify = ["Local Fire Department (Dispatched)"];
-  } 
-  // Medical incidents
-  else if (msg.includes('heart') || msg.includes('bleed') || msg.includes('unconscious') || msg.includes('breathing') || msg.includes('stroke') || msg.includes('seizure') || msg.includes('allergic') || msg.includes('injury') || msg.includes('faint') || msg.includes('choking') || msg.includes('pain') || msg.includes('asthma') || msg.includes('collapse')) {
+  // Medical incidents (Expanded to handle breathing issues, foam, overdose, poisoning)
+  if (msg.includes('heart') || msg.includes('bleed') || msg.includes('unconscious') || 
+      msg.includes('breath') || msg.includes('stroke') || msg.includes('seizure') || 
+      msg.includes('allergic') || msg.includes('injury') || msg.includes('faint') || 
+      msg.includes('chok') || msg.includes('pain') || msg.includes('asthma') || 
+      msg.includes('collapse') || msg.includes('foam') || msg.includes('mouth') || msg.includes('poison')) {
+    
     category = 'Medical';
-    severity = 'High';
-    suggestedAction = "Retrieve standard First Aid/Medical Response Kit. Clear an access path for emergency EMT teams.";
+    severity = msg.includes('breath') || msg.includes('foam') ? 'Critical' : 'High';
+    suggestedAction = "Perform immediate CPR if trained and breath is absent. If foam or vomiting is present, turn the person on their side (recovery position) to prevent choking. Clear access for EMS.";
     authoritiesToNotify = ["Emergency Medical Services (EMS)"];
   } 
+  // Fire incidents
+  else if (msg.includes('fire') || msg.includes('smoke') || msg.includes('burning') || msg.includes('explosion') || msg.includes('flame')) {
+    category = 'Fire';
+    severity = 'Critical';
+    suggestedAction = "Activate nearest fire alarm pull station. Evacuate building immediately.";
+    authoritiesToNotify = ["Local Fire Department (Dispatched)"];
+  } 
   // Security incidents
-  else if (msg.includes('fight') || msg.includes('theft') || msg.includes('weapon') || msg.includes('intruder') || msg.includes('rob') || msg.includes('assault') || msg.includes('harass') || msg.includes('suspicious') || msg.includes('break') || msg.includes('threat') || msg.includes('stole')) {
+  else if (msg.includes('fight') || msg.includes('theft') || msg.includes('weapon') || msg.includes('intruder') || msg.includes('rob') || msg.includes('assault') || msg.includes('harass') || msg.includes('threat')) {
     category = 'Security';
     severity = 'High';
-    suggestedAction = "Secure internal locks. Keep situational visual awareness if safe. Alert local law enforcement team.";
+    suggestedAction = "Secure internal locks. Alert local law enforcement team.";
     authoritiesToNotify = ["Local Police Department"];
   } 
   // Hazard incidents
-  else if (msg.includes('flood') || msg.includes('gas') || msg.includes('wire') || msg.includes('electric') || msg.includes('structural') || msg.includes('pipe') || msg.includes('toxic')) {
-    // Removed general 'leak' and 'spill' to prevent minor shower leaks or floor spills from triggering hazards
+  else if (msg.includes('flood') || msg.includes('gas') || msg.includes('wire') || msg.includes('electric') || msg.includes('structural') || msg.includes('pipe')) {
     category = 'Hazard';
     severity = 'Medium';
-    suggestedAction = "Isolate hazard section immediate border. Notify standby facility engineering team and isolate mains.";
+    suggestedAction = "Isolate hazard section. Notify engineering team.";
     authoritiesToNotify = ["Building Engineers"];
   }
 
-  // FIXED HEURISTIC LOGIC: It is an emergency ONLY if it matches a critical category and is NOT housekeeping
-  const isEmergency = !isHousekeeping && category !== 'Other';
+  const isEmergency = category !== 'Other';
 
   return {
-    isEmergency: isEmergency,
+    isEmergency,
     isHousekeeping,
     category,
     severity,
@@ -86,23 +92,24 @@ export async function analyzeEmergency(message: string): Promise<EmergencyAnalys
   try {
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
-      contents: `Analyze the following message from a hotel/restaurant guest. 
+      contents: `Analyze the following message from a guest/user. 
       Message: "${message}"`,
       config: {
         responseMimeType: "application/json",
-        // FIXED: Added strict System Instructions with Few-Shot examples inside the config block
-        systemInstruction: `You are a strict property management triage AI. Your sole job is to classify user requests into either EMERGENCY or ROUTINE HOUSEKEEPING.
+        systemInstruction: `You are a smart property management and safety triage AI. Your job is to classify requests into either EMERGENCY or ROUTINE HOUSEKEEPING. 
+
+Be highly sensitive to medical emergencies. If a request indicates a person is in physical distress, unconscious, having trouble breathing, or showing severe symptoms, it MUST be classified as an EMERGENCY, even if the text uses informal wording or mentions things like drinking.
 
 CRITICAL RULES:
-1. isEmergency must be true ONLY if there is an immediate, active threat to human life, safety, or severe property structural damage (e.g., active fires, medical crises, active crime, severe pipe burst flooding).
-2. isHousekeeping must be true for ANY cleaning, comfort, routine service, or non-dangerous maintenance requests (e.g., dirty floor, spilled water, trash full, broken shower, AC not cooling, Wi-Fi down, need extra towels).
-3. If isHousekeeping is true, isEmergency MUST be false.
+1. isEmergency must be true if there is any active threat to human life, safety, or severe medical distress (e.g., not breathing, passing out, foaming at the mouth, bleeding, poisoning/overdose signs).
+2. isHousekeeping must be true ONLY for cleaning, comfort, or minor maintenance requests that carry zero risk to life (e.g., dirty floor, spilled water, trash full, broken shower, AC cooling issue).
+3. If a message contains a severe medical issue, it takes absolute priority over any housekeeping keywords.
 
 FEW-SHOT EXAMPLES:
+- "My friend has been drinking online and now foam is coming out of his mouth" -> isEmergency: true, isHousekeeping: false, category: "Medical", severity: "Critical"
+- "Help my friend is not breathing" -> isEmergency: true, isHousekeeping: false, category: "Medical", severity: "Critical"
 - "The floor is dirty in the hallway" -> isEmergency: false, isHousekeeping: true, category: "Other", severity: "Low"
-- "My shower is not working" -> isEmergency: false, isHousekeeping: true, category: "Other", severity: "Low"
-- "There is a fire in room 302" -> isEmergency: true, isHousekeeping: false, category: "Fire", severity: "Critical"
-- "A guest collapsed and is unconscious" -> isEmergency: true, isHousekeeping: false, category: "Medical", severity: "High"`,
+- "My shower is leaking water onto the bathroom floor" -> isEmergency: false, isHousekeeping: true, category: "Other", severity: "Low"`,
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -111,7 +118,7 @@ FEW-SHOT EXAMPLES:
             category: { 
               type: Type.STRING, 
               enum: ['Medical', 'Fire', 'Security', 'Hazard', 'Other'] 
-              },
+            },
             severity: { 
               type: Type.STRING, 
               enum: ['Low', 'Medium', 'High', 'Critical'] 
