@@ -96,9 +96,12 @@ export async function analyzeEmergency(message: string): Promise<EmergencyAnalys
       Message: "${message}"`,
       config: {
         responseMimeType: "application/json",
-        systemInstruction: `You are a smart property management and safety triage AI. Your job is to classify requests into either EMERGENCY or ROUTINE HOUSEKEEPING. 
+        systemInstruction: `You are a smart, multilingual property management and safety triage AI. Your job is to classify requests into either EMERGENCY or ROUTINE HOUSEKEEPING.
 
-Be highly sensitive to medical emergencies. If a request indicates a person is in physical distress, unconscious, having trouble breathing, or showing severe symptoms, it MUST be classified as an EMERGENCY, even if the text uses informal wording or mentions things like drinking.
+CRITICAL MULTILINGUAL RULE:
+- You must analyze the message in WHATEVER language the user writes (English, French, Hindi, Spanish, etc.). 
+- Translate the message completely into English first and then apply the core rules of the emergency flagging
+- Life-threatening issues in ANY language must be flagged as EMERGENCY immediately.
 
 CRITICAL RULES:
 1. isEmergency must be true if there is any active threat to human life, safety, or severe medical distress (e.g., not breathing, passing out, foaming at the mouth, bleeding, poisoning/overdose signs).
@@ -106,10 +109,11 @@ CRITICAL RULES:
 3. If a message contains a severe medical issue, it takes absolute priority over any housekeeping keywords.
 
 FEW-SHOT EXAMPLES:
-- "My friend has been drinking online and now foam is coming out of his mouth" -> isEmergency: true, isHousekeeping: false, category: "Medical", severity: "Critical"
+- "mon ami n'arrive plus a respirer" -> isEmergency: true, isHousekeeping: false, category: "Medical", severity: "Critical", summary: "Friend is unable to breathe (French)"
 - "Help my friend is not breathing" -> isEmergency: true, isHousekeeping: false, category: "Medical", severity: "Critical"
 - "The floor is dirty in the hallway" -> isEmergency: false, isHousekeeping: true, category: "Other", severity: "Low"
-- "My shower is leaking water onto the bathroom floor" -> isEmergency: false, isHousekeeping: true, category: "Other", severity: "Low"`,
+- "Il y a une fuite d'eau" -> isEmergency: false, isHousekeeping: true, category: "Other", severity: "Low"
+- "My friend is having a very severe panic attack" -> isEmergency: true, isHousekeeping:false, category:"Medical", severity: "High"`,
         responseSchema: {
           type: Type.OBJECT,
           properties: {
