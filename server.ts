@@ -52,7 +52,7 @@ import { analyzeEmergency } from "./src/services/geminiService";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { supabase } from "./src/lib/supabaseClient";
-import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -81,17 +81,8 @@ async function startServer() {
   // In-memory OTP store: email -> { otp, expiry }
   const otpStore = new Map<string, { otp: string; expiry: number }>();
 
-  // Nodemailer transporter (Gmail SMTP)
-  const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    host: 'smtp.gmail.com',
-    port: 465,
-    secure: true,
-    auth: {
-      user: process.env.GMAIL_USER || '',
-      pass: process.env.GMAIL_APP_PASSWORD || ''
-    }
-  });
+  // Resend email client
+  const resend = new Resend(process.env.RESEND_API_KEY || '');
 
   const isBlockedIp = (key: string) => {
     return (fakeCounts[key] || 0) > 2;
@@ -196,8 +187,8 @@ async function startServer() {
       console.log("OTP for", email, ":", otp);
 
       try {
-        await transporter.sendMail({
-          from: `"SafeStay Hub" <${process.env.GMAIL_USER}>`,
+        await resend.emails.send({
+          from: 'SafeStay Hub <onboarding@resend.dev>',
           to: email,
           subject: "SafeStay Hub - Password Reset OTP",
           html: `
