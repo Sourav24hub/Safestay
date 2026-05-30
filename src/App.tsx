@@ -24,7 +24,12 @@ import {
   Trash2,
   Mic,
   MicOff,
-  Globe
+  Globe,
+  Building2,
+  ArrowLeft,
+  Hotel,
+  UtensilsCrossed,
+  MapPin
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -66,12 +71,37 @@ const SEVERITY_COLORS = {
 };
 
 export default function App() {
+  // ── New multi-screen state ──────────────────────────────────────────────────
+  const [appView, setAppView] = useState<'landing' | 'providerAuth' | 'guestSelectProvider' | 'guest' | 'staff'>('landing');
+  const [authTab, setAuthTab] = useState<'login' | 'signup'>('login');
+  const [providerSession, setProviderSession] = useState<{ token: string, provider: { id: string, name: string, type: string, loginId: string } } | null>(null);
+  const [providers, setProviders] = useState<{ id: string, name: string, type: string, loginId: string }[]>([]);
+  const [selectedProvider, setSelectedProvider] = useState<{ id: string, name: string, type: string } | null>(null);
+  const [forgotStep, setForgotStep] = useState<'none' | 'email' | 'otp'>('none');
+
+  // Signup form fields
+  const [signupName, setSignupName] = useState('');
+  const [signupType, setSignupType] = useState('Hotel');
+  const [signupEmail, setSignupEmail] = useState('');
+  const [signupLoginId, setSignupLoginId] = useState('');
+  const [signupPassword, setSignupPassword] = useState('');
+  const [signupConfirm, setSignupConfirm] = useState('');
+  const [signupError, setSignupError] = useState('');
+
+  // Forgot password fields
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotOtp, setForgotOtp] = useState('');
+  const [forgotNewPass, setForgotNewPass] = useState('');
+  const [forgotError, setForgotError] = useState('');
+  const [forgotSuccess, setForgotSuccess] = useState('');
+
+  // ── Existing state ──────────────────────────────────────────────────────────
   const [view, setView] = useState<'guest' | 'staff'>('guest');
   const [message, setMessage] = useState('');
   const [roomNumber, setRoomNumber] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [alerts, setAlerts] = useState<Alert[]>([]);
-  const [activeTab, setActiveTab] = useState<'active' | 'history' | 'stats'>('active');
+  const [activeTab, setActiveTab] = useState<'active' | 'history' | 'stats' | 'blocked'>('active');
   const [showFlash, setShowFlash] = useState(false);
   const [flashMessage, setFlashMessage] = useState('');
   const [showSuccessModal, setShowSuccessModal] = useState(false);
@@ -97,9 +127,23 @@ export default function App() {
   // LocalStorage Fallback state
   const [useLocalStorageFallback, setUseLocalStorageFallback] = useState(false);
 
+  // ── Staff PIN state ─────────────────────────────────────────────────────────
+  const [staffPinVerified, setStaffPinVerified] = useState(false);
+  const [enteredPin, setEnteredPin] = useState('');
+  const [pinError, setPinError] = useState('');
+  const [showChangePinForm, setShowChangePinForm] = useState(false);
+  const [oldPinInput, setOldPinInput] = useState('');
+  const [newPinInput, setNewPinInput] = useState('');
+  const [pinChangeStatus, setPinChangeStatus] = useState('');
+
+  // ── Blocked IPs state ───────────────────────────────────────────────────────
+  const [blockedIps, setBlockedIps] = useState<{ ip: string, fakeCount: number, cooldownCount: number, lastFalseReport: string }[]>([]);
+  const [blockedIpsLoading, setBlockedIpsLoading] = useState(false);
+
   // LocalStorage helper utilities for robust hosting fallbacks
-  const getLocalAlerts = (): Alert[] => {
-    const data = localStorage.getItem('safestay_alerts_fb');
+  const getLocalAlerts = (pid?: string): Alert[] => {
+    const key = pid ? `safestay_alerts_fb_${pid}` : 'safestay_alerts_fb';
+    const data = localStorage.getItem(key);
     if (data) return JSON.parse(data);
     const defaults: Alert[] = [
       {
@@ -117,12 +161,13 @@ export default function App() {
         authoritiesToNotify: ["Local Emergency Dispatcher"]
       }
     ];
-    localStorage.setItem('safestay_alerts_fb', JSON.stringify(defaults));
+    localStorage.setItem(key, JSON.stringify(defaults));
     return defaults;
   };
 
-  const saveLocalAlerts = (updatedAlerts: Alert[]) => {
-    localStorage.setItem('safestay_alerts_fb', JSON.stringify(updatedAlerts));
+  const saveLocalAlerts = (updatedAlerts: Alert[], pid?: string) => {
+    const key = pid ? `safestay_alerts_fb_${pid}` : 'safestay_alerts_fb';
+    localStorage.setItem(key, JSON.stringify(updatedAlerts));
   };
 
   const getLocalCreds = () => {
@@ -137,31 +182,37 @@ export default function App() {
     localStorage.setItem('safestay_creds_fb', JSON.stringify(creds));
   };
 
-  const getLocalFalseReportCount = (): number => {
-    return parseInt(localStorage.getItem('safestay_false_count_fb') || '0', 10);
+  const getLocalFalseReportCount = (pid?: string): number => {
+    const key = pid ? `safestay_false_count_fb_${pid}` : 'safestay_false_count_fb';
+    return parseInt(localStorage.getItem(key) || '0', 10);
   };
 
-  const setLocalFalseReportCount = (count: number) => {
-    localStorage.setItem('safestay_false_count_fb', count.toString());
+  const setLocalFalseReportCount = (count: number, pid?: string) => {
+    const key = pid ? `safestay_false_count_fb_${pid}` : 'safestay_false_count_fb';
+    localStorage.setItem(key, count.toString());
   };
 
-  const getLocalLastFalseReport = (): number => {
-    return parseInt(localStorage.getItem('safestay_last_false_fb') || '0', 10);
+  const getLocalLastFalseReport = (pid?: string): number => {
+    const key = pid ? `safestay_last_false_fb_${pid}` : 'safestay_last_false_fb';
+    return parseInt(localStorage.getItem(key) || '0', 10);
   };
 
-  const setLocalLastFalseReport = (time: number) => {
-    localStorage.setItem('safestay_last_false_fb', time.toString());
+  const setLocalLastFalseReport = (time: number, pid?: string) => {
+    const key = pid ? `safestay_last_false_fb_${pid}` : 'safestay_last_false_fb';
+    localStorage.setItem(key, time.toString());
   };
 
-  const getLocalFakeCount = (): number => {
-    return parseInt(localStorage.getItem('safestay_fake_count_fb') || '0', 10);
+  const getLocalFakeCount = (pid?: string): number => {
+    const key = pid ? `safestay_fake_count_fb_${pid}` : 'safestay_fake_count_fb';
+    return parseInt(localStorage.getItem(key) || '0', 10);
   };
 
-  const setLocalFakeCount = (count: number) => {
-    localStorage.setItem('safestay_fake_count_fb', count.toString());
+  const setLocalFakeCount = (count: number, pid?: string) => {
+    const key = pid ? `safestay_fake_count_fb_${pid}` : 'safestay_fake_count_fb';
+    localStorage.setItem(key, count.toString());
   };
 
-  // Session management (24h)
+  // Session management (24h) + provider session restore
   useEffect(() => {
     const session = localStorage.getItem('staffSession');
     if (session) {
@@ -172,15 +223,28 @@ export default function App() {
         localStorage.removeItem('staffSession');
       }
     }
+
+    const providerSess = localStorage.getItem('safestay_provider_session');
+    if (providerSess) {
+      const parsed = JSON.parse(providerSess);
+      if (Date.now() < parsed.expiry) {
+        setProviderSession(parsed);
+      } else {
+        localStorage.removeItem('safestay_provider_session');
+      }
+    }
   }, []);
 
-  // Cooldown & Blocklist parameters checking (with localStorage fallback detection)
+  // Cooldown & Blocklist parameters checking — only when guest view with a selected provider
   useEffect(() => {
+    if (appView !== 'guest' || !selectedProvider) return;
+    const pid = selectedProvider.id;
+
     const checkCooldown = async () => {
       if (useLocalStorageFallback) {
-        const count = getLocalFalseReportCount();
-        const lastFalseReport = getLocalLastFalseReport();
-        const fakeTotal = getLocalFakeCount();
+        const count = getLocalFalseReportCount(pid);
+        const lastFalseReport = getLocalLastFalseReport(pid);
+        const fakeTotal = getLocalFakeCount(pid);
         
         let localCooldown = 0;
         if (count >= 3) {
@@ -196,7 +260,7 @@ export default function App() {
       }
 
       try {
-        const res = await fetch('/api/cooldown');
+        const res = await fetch(`/api/cooldown?providerId=${pid}`);
         const contentType = res.headers.get("content-type") || "";
         if (res.ok && !contentType.includes("text/html")) {
           const data = await res.json();
@@ -213,18 +277,27 @@ export default function App() {
     checkCooldown();
     const interval = setInterval(checkCooldown, 5000);
     return () => clearInterval(interval);
-  }, [useLocalStorageFallback]);
+  }, [useLocalStorageFallback, appView, selectedProvider]);
 
-  // Fetch alerts on mount and periodically
+  // Fetch alerts on mount and periodically — scoped to the active provider
   useEffect(() => {
-    fetchAlerts();
-    const interval = setInterval(fetchAlerts, 5000);
-    return () => clearInterval(interval);
-  }, [useLocalStorageFallback]);
+    const pid = appView === 'guest'
+      ? selectedProvider?.id
+      : appView === 'staff' && isStaffLoggedIn
+        ? providerSession?.provider.id
+        : undefined;
 
-  const fetchAlerts = async () => {
+    if (!pid) return;
+
+    fetchAlerts(pid);
+    const interval = setInterval(() => fetchAlerts(pid), 5000);
+    return () => clearInterval(interval);
+  }, [useLocalStorageFallback, appView, selectedProvider, isStaffLoggedIn, providerSession]);
+
+  const fetchAlerts = async (providerId?: string) => {
+    if (!providerId) return;
     try {
-      const res = await fetch('/api/alerts');
+      const res = await fetch(`/api/alerts?providerId=${providerId}`);
       const contentType = res.headers.get("content-type") || "";
       if (res.ok && !contentType.includes("text/html")) {
         const data = await res.json();
@@ -232,11 +305,11 @@ export default function App() {
         setUseLocalStorageFallback(false);
       } else {
         setUseLocalStorageFallback(true);
-        setAlerts(getLocalAlerts());
+        setAlerts(getLocalAlerts(providerId));
       }
     } catch (err) {
       setUseLocalStorageFallback(true);
-      setAlerts(getLocalAlerts());
+      setAlerts(getLocalAlerts(providerId));
     }
   };
 
@@ -254,12 +327,13 @@ export default function App() {
       // 2. Filter out housekeeping or non-emergencies
       if (!analysis.isEmergency) {
         if (useLocalStorageFallback) {
-          const newFalseCount = getLocalFalseReportCount() + 1;
-          setLocalFalseReportCount(newFalseCount);
-          setLocalLastFalseReport(Date.now());
+          const pid = selectedProvider?.id;
+          const newFalseCount = getLocalFalseReportCount(pid) + 1;
+          setLocalFalseReportCount(newFalseCount, pid);
+          setLocalLastFalseReport(Date.now(), pid);
           
-          const newFakeTotal = getLocalFakeCount() + 1;
-          setLocalFakeCount(newFakeTotal);
+          const newFakeTotal = getLocalFakeCount(pid) + 1;
+          setLocalFakeCount(newFakeTotal, pid);
           
           if (newFakeTotal > 2) {
             setIsIpBlocked(true);
@@ -274,7 +348,8 @@ export default function App() {
               isEmergency: false,
               isHousekeeping: analysis.isHousekeeping,
               message,
-              roomNumber: roomNumber || 'Unknown'
+              roomNumber: roomNumber || 'Unknown',
+              providerId: selectedProvider?.id
             })
           });
 
@@ -297,7 +372,8 @@ export default function App() {
       
       // 3. Submit alert logs
       if (useLocalStorageFallback) {
-        const localAlerts = getLocalAlerts();
+        const pid = selectedProvider?.id;
+        const localAlerts = getLocalAlerts(pid);
         const newAlert: Alert = {
           id: Date.now().toString(),
           timestamp: new Date().toISOString(),
@@ -313,7 +389,7 @@ export default function App() {
           authoritiesToNotify: analysis.authoritiesToNotify
         };
         localAlerts.unshift(newAlert);
-        saveLocalAlerts(localAlerts);
+        saveLocalAlerts(localAlerts, pid);
         setAlerts(localAlerts);
         
         setMessage('');
@@ -326,7 +402,8 @@ export default function App() {
           body: JSON.stringify({
             ...analysis,
             message,
-            roomNumber: roomNumber || 'Unknown'
+            roomNumber: roomNumber || 'Unknown',
+            providerId: selectedProvider?.id
           })
         });
 
@@ -340,7 +417,7 @@ export default function App() {
           setMessage('');
           setRoomNumber('');
           setShowSuccessModal(true);
-          fetchAlerts();
+          fetchAlerts(selectedProvider?.id);
         }
       }
     } catch (err) {
@@ -349,8 +426,9 @@ export default function App() {
       
       // Classify locally
       const analysis = localHeuristicAnalysis(message);
+      const pid = selectedProvider?.id;
       
-      const localAlerts = getLocalAlerts();
+      const localAlerts = getLocalAlerts(pid);
       const newAlert: Alert = {
         id: Date.now().toString(),
         timestamp: new Date().toISOString(),
@@ -367,12 +445,12 @@ export default function App() {
       };
       
       if (!analysis.isEmergency) {
-        const newFalseCount = getLocalFalseReportCount() + 1;
-        setLocalFalseReportCount(newFalseCount);
-        setLocalLastFalseReport(Date.now());
+        const newFalseCount = getLocalFalseReportCount(pid) + 1;
+        setLocalFalseReportCount(newFalseCount, pid);
+        setLocalLastFalseReport(Date.now(), pid);
         
-        const newFakeTotal = getLocalFakeCount() + 1;
-        setLocalFakeCount(newFakeTotal);
+        const newFakeTotal = getLocalFakeCount(pid) + 1;
+        setLocalFakeCount(newFakeTotal, pid);
         
         if (newFakeTotal > 2) {
           setIsIpBlocked(true);
@@ -387,7 +465,7 @@ export default function App() {
         setShowFlash(true);
       } else {
         localAlerts.unshift(newAlert);
-        saveLocalAlerts(localAlerts);
+        saveLocalAlerts(localAlerts, pid);
         setAlerts(localAlerts);
         setMessage('');
         setRoomNumber('');
@@ -399,22 +477,23 @@ export default function App() {
   };
 
   const updateStatus = async (id: string, status: Alert['status']) => {
+    const pid = providerSession?.provider.id;
     if (useLocalStorageFallback) {
-      const localAlerts = getLocalAlerts();
+      const localAlerts = getLocalAlerts(pid);
       const idx = localAlerts.findIndex(a => a.id === id);
       if (idx !== -1) {
         const oldStatus = localAlerts[idx].status;
         localAlerts[idx].status = status;
         
         if (status === 'fake' && oldStatus !== 'fake') {
-          const newFake = getLocalFakeCount() + 1;
-          setLocalFakeCount(newFake);
+          const newFake = getLocalFakeCount(pid) + 1;
+          setLocalFakeCount(newFake, pid);
           if (newFake > 2) {
             setIsIpBlocked(true);
           }
           setFakeCount(newFake);
         }
-        saveLocalAlerts(localAlerts);
+        saveLocalAlerts(localAlerts, pid);
         setAlerts(localAlerts);
       }
       return;
@@ -424,9 +503,9 @@ export default function App() {
       await fetch(`/api/alerts/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status })
+        body: JSON.stringify({ status, providerId: pid })
       });
-      fetchAlerts();
+      fetchAlerts(pid);
     } catch (err) {
       console.error("Failed to update status", err);
     }
@@ -617,34 +696,691 @@ export default function App() {
     { name: 'Hazard', value: alerts.filter(a => a.category === 'Hazard' || a.category === 'Maintenance').length },
   ];
 
+  // ── New handler functions ───────────────────────────────────────────────────
+
+  const handleProviderSignup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSignupError('');
+    if (signupPassword !== signupConfirm) {
+      setSignupError('Passwords do not match');
+      return;
+    }
+    try {
+      const res = await fetch('/api/providers/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: signupName,
+          type: signupType,
+          email: signupEmail,
+          loginId: signupLoginId,
+          password: signupPassword
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSignupError(data.error || 'Signup failed');
+        return;
+      }
+      // Auto login after signup
+      const loginRes = await fetch('/api/providers/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ loginId: signupLoginId, password: signupPassword })
+      });
+      const loginData = await loginRes.json();
+      if (loginRes.ok) {
+        const session = { token: loginData.token, provider: loginData.provider, expiry: Date.now() + 7 * 24 * 60 * 60 * 1000 };
+        setProviderSession(session);
+        localStorage.setItem('safestay_provider_session', JSON.stringify(session));
+        setAppView('staff');
+      }
+    } catch (err) {
+      setSignupError('Network error. Please try again.');
+    }
+  };
+
+  const handleProviderLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError('');
+    try {
+      const res = await fetch('/api/providers/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ loginId: loginId, password: loginPass })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setLoginError(data.error || 'Login failed');
+        return;
+      }
+      const session = { token: data.token, provider: data.provider, expiry: Date.now() + 7 * 24 * 60 * 60 * 1000 };
+      setProviderSession(session);
+      localStorage.setItem('safestay_provider_session', JSON.stringify(session));
+      setAppView('staff');
+    } catch (err) {
+      setLoginError('Network error. Please try again.');
+    }
+  };
+
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setForgotError('');
+    try {
+      const res = await fetch('/api/providers/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setForgotError(data.error || 'Email not found');
+        return;
+      }
+      setForgotStep('otp');
+    } catch (err) {
+      setForgotError('Network error.');
+    }
+  };
+
+  const handleVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setForgotError('');
+    try {
+      const res = await fetch('/api/providers/verify-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail, otp: forgotOtp, newPassword: forgotNewPass })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setForgotError(data.error || 'Invalid OTP');
+        return;
+      }
+      setForgotSuccess('Password updated successfully. Please login.');
+      setForgotStep('none');
+      setAuthTab('login');
+    } catch (err) {
+      setForgotError('Network error.');
+    }
+  };
+
+  const handleProviderLogout = () => {
+    setProviderSession(null);
+    localStorage.removeItem('safestay_provider_session');
+    setIsStaffLoggedIn(false);
+    localStorage.removeItem('staffSession');
+    setStaffPinVerified(false);
+    setAppView('landing');
+  };
+
+  // ── Staff PIN helpers ───────────────────────────────────────────────────────
+  const getStaffPin = () => {
+    const providerId = providerSession?.provider.id;
+    return localStorage.getItem(`safestay_staff_pin_${providerId}`) || 'staff@123';
+  };
+
+  const handlePinSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setPinError('');
+    if (enteredPin === getStaffPin()) {
+      setStaffPinVerified(true);
+      setEnteredPin('');
+    } else {
+      setPinError('Incorrect PIN. Please try again.');
+    }
+  };
+
+  const handleChangePin = (e: React.FormEvent) => {
+    e.preventDefault();
+    setPinChangeStatus('');
+    if (oldPinInput !== getStaffPin()) {
+      setPinChangeStatus('Incorrect current PIN.');
+      return;
+    }
+    if (newPinInput.length < 4) {
+      setPinChangeStatus('New PIN must be at least 4 characters.');
+      return;
+    }
+    localStorage.setItem(`safestay_staff_pin_${providerSession?.provider.id}`, newPinInput);
+    setPinChangeStatus('Staff PIN updated successfully.');
+    setOldPinInput('');
+    setNewPinInput('');
+    setTimeout(() => setShowChangePinForm(false), 1500);
+  };
+
+  // ── Blocked IPs helpers ─────────────────────────────────────────────────────
+  const fetchBlockedIps = async () => {
+    const providerId = providerSession?.provider.id;
+    if (!providerId) return;
+    setBlockedIpsLoading(true);
+    try {
+      const res = await fetch(`/api/blocked-ips?providerId=${providerId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setBlockedIps(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch blocked IPs');
+    } finally {
+      setBlockedIpsLoading(false);
+    }
+  };
+
+  const handleUnblockIp = async (ip: string) => {
+    const providerId = providerSession?.provider.id;
+    if (!providerId) return;
+    try {
+      const res = await fetch(`/api/blocked-ips/${encodeURIComponent(ip)}?providerId=${providerId}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        fetchBlockedIps();
+      }
+    } catch (err) {
+      console.error('Failed to unblock IP');
+    }
+  };
+
+  const fetchProviders = async () => {
+    try {
+      const res = await fetch('/api/providers');
+      if (res.ok) {
+        const data = await res.json();
+        setProviders(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch providers');
+    }
+  };
+
+  // Auto-refresh blocked IPs every 10s when that tab is active
+  useEffect(() => {
+    if (appView === 'staff' && staffPinVerified && isStaffLoggedIn && activeTab === 'blocked') {
+      fetchBlockedIps();
+      const interval = setInterval(fetchBlockedIps, 10000);
+      return () => clearInterval(interval);
+    }
+  }, [appView, staffPinVerified, isStaffLoggedIn, activeTab]);
+
+  // ── Screen: Landing ─────────────────────────────────────────────────────────
+  if (appView === 'landing') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-[#0f0f0f] via-[#1a1a2e] to-[#16213e] flex flex-col">
+        {/* Header */}
+        <nav className="px-6 py-5 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="bg-red-600 p-2.5 rounded-xl shadow-lg shadow-red-600/30">
+              <Shield className="text-white w-6 h-6" />
+            </div>
+            <div>
+              <h1 className="text-white text-xl font-bold tracking-tight">SafeStay Hub</h1>
+              <p className="text-red-400 text-[10px] font-semibold uppercase tracking-widest">AI-Powered Emergency Response</p>
+            </div>
+          </div>
+        </nav>
+
+        {/* Hero */}
+        <div className="flex-1 flex flex-col items-center justify-center px-6 py-12">
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6 }}
+            className="text-center mb-14 max-w-2xl"
+          >
+            <div className="inline-flex items-center gap-2 bg-red-600/10 border border-red-500/20 text-red-400 text-xs font-bold uppercase tracking-widest px-4 py-2 rounded-full mb-6">
+              <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse" />
+              Live Emergency System
+            </div>
+            <h2 className="text-5xl md:text-6xl font-black text-white tracking-tight leading-none mb-4">
+              Emergency<br />
+              <span className="text-red-500">Response</span> Hub
+            </h2>
+            <p className="text-gray-400 text-lg leading-relaxed">
+              AI-powered crisis management for hotels &amp; restaurants.<br />
+              Instant triage. Real-time alerts. Lives protected.
+            </p>
+          </motion.div>
+
+          {/* Two cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-3xl">
+            {/* Guest card */}
+            <motion.div
+              initial={{ opacity: 0, y: 40 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.15 }}
+              className="group relative bg-gradient-to-br from-red-600 to-red-800 rounded-3xl p-8 shadow-2xl shadow-red-900/40 hover:shadow-red-600/40 hover:scale-[1.02] transition-all duration-300 cursor-pointer border border-red-500/20"
+              onClick={() => { fetchProviders(); setAppView('guestSelectProvider'); }}
+            >
+              <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_rgba(255,100,100,0.2),_transparent_70%)] rounded-3xl" />
+              <div className="relative">
+                <div className="w-14 h-14 bg-white/20 backdrop-blur rounded-2xl flex items-center justify-center mb-6 group-hover:bg-white/30 transition-colors">
+                  <AlertTriangle className="text-white w-7 h-7" />
+                </div>
+                <h3 className="text-2xl font-black text-white mb-2">Report an Emergency</h3>
+                <p className="text-red-200 text-sm mb-8 leading-relaxed">For hotel &amp; restaurant guests experiencing a crisis situation</p>
+                <button className="w-full bg-white text-red-700 font-bold py-3.5 rounded-2xl hover:bg-red-50 transition-all text-sm uppercase tracking-wider shadow-lg">
+                  Enter as Guest
+                </button>
+              </div>
+            </motion.div>
+
+            {/* Staff card */}
+            <motion.div
+              initial={{ opacity: 0, y: 40 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.28 }}
+              className="group relative bg-gradient-to-br from-gray-800 to-gray-950 rounded-3xl p-8 shadow-2xl shadow-black/60 hover:shadow-gray-700/40 hover:scale-[1.02] transition-all duration-300 cursor-pointer border border-white/8"
+              onClick={() => setAppView('providerAuth')}
+            >
+              <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_rgba(100,100,255,0.08),_transparent_70%)] rounded-3xl" />
+              <div className="relative">
+                <div className="w-14 h-14 bg-white/10 backdrop-blur rounded-2xl flex items-center justify-center mb-6 group-hover:bg-white/15 transition-colors">
+                  <Lock className="text-gray-300 w-7 h-7" />
+                </div>
+                <h3 className="text-2xl font-black text-white mb-2">Staff &amp; Management</h3>
+                <p className="text-gray-400 text-sm mb-8 leading-relaxed">For service providers managing the crisis command dashboard</p>
+                <button className="w-full bg-white/10 hover:bg-white/20 text-white font-bold py-3.5 rounded-2xl transition-all text-sm uppercase tracking-wider border border-white/10">
+                  Login / Sign Up
+                </button>
+              </div>
+            </motion.div>
+          </div>
+
+          {/* Footer note */}
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.5 }}
+            className="mt-10 text-gray-600 text-xs text-center"
+          >
+            🚨 Call <strong className="text-gray-400">911 / 112</strong> for immediate life-threatening emergencies
+          </motion.p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Screen: Provider Auth ───────────────────────────────────────────────────
+  if (appView === 'providerAuth') {
+    return (
+      <div className="min-h-screen bg-[#F8F9FA] flex flex-col">
+        {/* Back button */}
+        <div className="px-6 py-5">
+          <button
+            onClick={() => { setAppView('landing'); setForgotStep('none'); setForgotError(''); setForgotSuccess(''); setSignupError(''); setLoginError(''); }}
+            className="flex items-center gap-2 text-gray-500 hover:text-gray-800 transition-colors text-sm font-semibold"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back to Home
+          </button>
+        </div>
+
+        <div className="flex-1 flex items-center justify-center px-6 py-8">
+          <motion.div
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4 }}
+            className="w-full max-w-md"
+          >
+            {/* Card header */}
+            <div className="text-center mb-8">
+              <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-100">
+                <Shield className="text-red-600 w-8 h-8" />
+              </div>
+              <h2 className="text-2xl font-bold text-gray-900">Provider Portal</h2>
+              <p className="text-gray-500 text-sm mt-1">SafeStay Hub — Staff &amp; Management</p>
+            </div>
+
+            <div className="bg-white rounded-3xl shadow-xl border border-black/5 overflow-hidden">
+              {/* Tabs */}
+              <div className="flex border-b border-gray-100">
+                <button
+                  onClick={() => { setAuthTab('login'); setForgotStep('none'); setForgotError(''); setForgotSuccess(''); }}
+                  className={`flex-1 py-4 text-sm font-bold uppercase tracking-wider transition-all ${authTab === 'login' ? 'text-red-600 border-b-2 border-red-600 bg-red-50/40' : 'text-gray-400 hover:text-gray-600'}`}
+                >
+                  Login
+                </button>
+                <button
+                  onClick={() => { setAuthTab('signup'); setForgotStep('none'); setForgotError(''); setForgotSuccess(''); }}
+                  className={`flex-1 py-4 text-sm font-bold uppercase tracking-wider transition-all ${authTab === 'signup' ? 'text-red-600 border-b-2 border-red-600 bg-red-50/40' : 'text-gray-400 hover:text-gray-600'}`}
+                >
+                  Sign Up
+                </button>
+              </div>
+
+              <div className="p-8">
+                <AnimatePresence mode="wait">
+                  {authTab === 'login' ? (
+                    <motion.div key="login" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }} transition={{ duration: 0.2 }}>
+                      {forgotStep === 'none' && (
+                        <form onSubmit={handleProviderLogin} className="space-y-4">
+                          <div>
+                            <label className="block text-xs font-bold text-gray-400 uppercase mb-1 tracking-wider">Login ID</label>
+                            <div className="relative">
+                              <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                              <input
+                                type="text"
+                                value={loginId}
+                                onChange={(e) => setLoginId(e.target.value)}
+                                required
+                                placeholder="Your provider login ID"
+                                className="w-full bg-gray-50 border-none rounded-xl pl-12 pr-4 py-3 focus:ring-2 focus:ring-red-500 outline-none text-sm"
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-bold text-gray-400 uppercase mb-1 tracking-wider">Password</label>
+                            <div className="relative">
+                              <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                              <input
+                                type="password"
+                                value={loginPass}
+                                onChange={(e) => setLoginPass(e.target.value)}
+                                required
+                                placeholder="••••••••"
+                                className="w-full bg-gray-50 border-none rounded-xl pl-12 pr-4 py-3 focus:ring-2 focus:ring-red-500 outline-none text-sm"
+                              />
+                            </div>
+                          </div>
+                          {loginError && <p className="text-xs text-red-600 font-bold text-center bg-red-50 py-2 rounded-lg">{loginError}</p>}
+                          {forgotSuccess && <p className="text-xs text-green-600 font-bold text-center bg-green-50 py-2 rounded-lg">{forgotSuccess}</p>}
+                          <button type="submit" className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-4 rounded-xl transition-all uppercase tracking-wider shadow-lg shadow-red-600/20 text-sm">
+                            Login
+                          </button>
+                          <div className="text-center">
+                            <button type="button" onClick={() => { setForgotStep('email'); setForgotError(''); setForgotEmail(''); }} className="text-xs text-gray-400 hover:text-red-600 transition-colors font-semibold">
+                              Forgot Password?
+                            </button>
+                          </div>
+                        </form>
+                      )}
+
+                      {forgotStep === 'email' && (
+                        <motion.div key="forgot-email" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+                          <div className="text-center mb-2">
+                            <p className="text-sm font-bold text-gray-700">Reset Password</p>
+                            <p className="text-xs text-gray-400 mt-1">Enter your registered email to receive an OTP</p>
+                          </div>
+                          <form onSubmit={handleForgotPassword} className="space-y-4">
+                            <div>
+                              <label className="block text-xs font-bold text-gray-400 uppercase mb-1 tracking-wider">Email Address</label>
+                              <input
+                                type="email"
+                                value={forgotEmail}
+                                onChange={(e) => setForgotEmail(e.target.value)}
+                                required
+                                placeholder="your@email.com"
+                                className="w-full bg-gray-50 border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-red-500 outline-none text-sm"
+                              />
+                            </div>
+                            {forgotError && <p className="text-xs text-red-600 font-bold text-center bg-red-50 py-2 rounded-lg">{forgotError}</p>}
+                            <button type="submit" className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3.5 rounded-xl transition-all text-sm uppercase tracking-wider">
+                              Send OTP
+                            </button>
+                            <div className="text-center">
+                              <button type="button" onClick={() => setForgotStep('none')} className="text-xs text-gray-400 hover:text-gray-600 font-semibold">
+                                ← Back to login
+                              </button>
+                            </div>
+                          </form>
+                        </motion.div>
+                      )}
+
+                      {forgotStep === 'otp' && (
+                        <motion.div key="forgot-otp" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+                          <div className="text-center mb-2">
+                            <p className="text-sm font-bold text-gray-700">Enter OTP</p>
+                            <p className="text-xs text-gray-400 mt-1">Check the server console for your OTP (sent to {forgotEmail})</p>
+                          </div>
+                          <form onSubmit={handleVerifyOtp} className="space-y-4">
+                            <div>
+                              <label className="block text-xs font-bold text-gray-400 uppercase mb-1 tracking-wider">6-Digit OTP</label>
+                              <input
+                                type="text"
+                                value={forgotOtp}
+                                onChange={(e) => setForgotOtp(e.target.value)}
+                                required
+                                maxLength={6}
+                                placeholder="000000"
+                                className="w-full bg-gray-50 border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-red-500 outline-none text-sm text-center tracking-widest font-mono"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-bold text-gray-400 uppercase mb-1 tracking-wider">New Password</label>
+                              <input
+                                type="password"
+                                value={forgotNewPass}
+                                onChange={(e) => setForgotNewPass(e.target.value)}
+                                required
+                                placeholder="••••••••"
+                                className="w-full bg-gray-50 border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-red-500 outline-none text-sm"
+                              />
+                            </div>
+                            {forgotError && <p className="text-xs text-red-600 font-bold text-center bg-red-50 py-2 rounded-lg">{forgotError}</p>}
+                            <button type="submit" className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3.5 rounded-xl transition-all text-sm uppercase tracking-wider">
+                              Reset Password
+                            </button>
+                            <div className="text-center">
+                              <button type="button" onClick={() => setForgotStep('none')} className="text-xs text-gray-400 hover:text-gray-600 font-semibold">
+                                ← Back to login
+                              </button>
+                            </div>
+                          </form>
+                        </motion.div>
+                      )}
+                    </motion.div>
+                  ) : (
+                    <motion.div key="signup" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }} transition={{ duration: 0.2 }}>
+                      <form onSubmit={handleProviderSignup} className="space-y-4">
+                        <div>
+                          <label className="block text-xs font-bold text-gray-400 uppercase mb-1 tracking-wider">Provider Name</label>
+                          <input
+                            type="text"
+                            value={signupName}
+                            onChange={(e) => setSignupName(e.target.value)}
+                            required
+                            placeholder="e.g. Grand Plaza Hotel"
+                            className="w-full bg-gray-50 border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-red-500 outline-none text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-gray-400 uppercase mb-1 tracking-wider">Type</label>
+                          <select
+                            value={signupType}
+                            onChange={(e) => setSignupType(e.target.value)}
+                            className="w-full bg-gray-50 border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-red-500 outline-none text-sm"
+                          >
+                            <option value="Hotel">Hotel</option>
+                            <option value="Restaurant">Restaurant</option>
+                            <option value="Other">Other</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-gray-400 uppercase mb-1 tracking-wider">Email</label>
+                          <input
+                            type="email"
+                            value={signupEmail}
+                            onChange={(e) => setSignupEmail(e.target.value)}
+                            required
+                            placeholder="admin@yourproperty.com"
+                            className="w-full bg-gray-50 border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-red-500 outline-none text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-gray-400 uppercase mb-1 tracking-wider">Login ID</label>
+                          <input
+                            type="text"
+                            value={signupLoginId}
+                            onChange={(e) => setSignupLoginId(e.target.value)}
+                            required
+                            placeholder="Choose a unique login ID"
+                            className="w-full bg-gray-50 border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-red-500 outline-none text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-gray-400 uppercase mb-1 tracking-wider">Password</label>
+                          <input
+                            type="password"
+                            value={signupPassword}
+                            onChange={(e) => setSignupPassword(e.target.value)}
+                            required
+                            placeholder="••••••••"
+                            className="w-full bg-gray-50 border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-red-500 outline-none text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-gray-400 uppercase mb-1 tracking-wider">Confirm Password</label>
+                          <input
+                            type="password"
+                            value={signupConfirm}
+                            onChange={(e) => setSignupConfirm(e.target.value)}
+                            required
+                            placeholder="••••••••"
+                            className="w-full bg-gray-50 border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-red-500 outline-none text-sm"
+                          />
+                        </div>
+                        {signupError && <p className="text-xs text-red-600 font-bold text-center bg-red-50 py-2 rounded-lg">{signupError}</p>}
+                        <button type="submit" className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-4 rounded-xl transition-all uppercase tracking-wider shadow-lg shadow-red-600/20 text-sm">
+                          Create Account
+                        </button>
+                      </form>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Screen: Guest Select Provider ───────────────────────────────────────────
+  if (appView === 'guestSelectProvider') {
+    const getProviderIcon = (type: string) => {
+      if (type === 'Hotel') return <Building2 className="w-6 h-6 text-red-500" />;
+      if (type === 'Restaurant') return <UtensilsCrossed className="w-6 h-6 text-blue-500" />;
+      return <MapPin className="w-6 h-6 text-gray-500" />;
+    };
+    const getTypeBadge = (type: string) => {
+      if (type === 'Hotel') return 'bg-red-100 text-red-700';
+      if (type === 'Restaurant') return 'bg-blue-100 text-blue-700';
+      return 'bg-gray-100 text-gray-600';
+    };
+
+    return (
+      <div className="min-h-screen bg-[#F8F9FA]">
+        {/* Top bar */}
+        <nav className="bg-white border-b border-black/5 px-6 py-4 flex items-center gap-4 sticky top-0 z-50">
+          <button
+            onClick={() => setAppView('landing')}
+            className="flex items-center gap-2 text-gray-500 hover:text-gray-800 transition-colors text-sm font-semibold"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back
+          </button>
+          <div className="flex items-center gap-2 ml-2">
+            <div className="bg-red-600 p-1.5 rounded-lg">
+              <Shield className="text-white w-4 h-4" />
+            </div>
+            <h1 className="text-lg font-bold tracking-tight">SafeStay Hub</h1>
+          </div>
+        </nav>
+
+        <main className="max-w-4xl mx-auto px-6 py-12">
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
+            <div className="text-center mb-10">
+              <h2 className="text-3xl font-bold text-gray-900 mb-2">Select Your Property</h2>
+              <p className="text-gray-500">Choose the hotel or restaurant you are currently at</p>
+            </div>
+
+            {providers.length === 0 ? (
+              <div className="text-center py-20 space-y-4">
+                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto">
+                  <Building2 className="w-8 h-8 text-gray-400" />
+                </div>
+                <p className="text-gray-400 font-medium">No properties registered yet.</p>
+                <p className="text-gray-300 text-sm">Ask the property staff to register on SafeStay Hub.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {providers.map((provider, i) => (
+                  <motion.button
+                    key={provider.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.08 }}
+                    onClick={() => { setSelectedProvider(provider); setAppView('guest'); }}
+                    className="group bg-white rounded-2xl p-6 border border-black/5 shadow-sm hover:shadow-lg hover:border-red-200 hover:scale-[1.02] transition-all text-left flex items-center gap-5"
+                  >
+                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0 transition-all ${provider.type === 'Hotel' ? 'bg-red-50 group-hover:bg-red-100' : provider.type === 'Restaurant' ? 'bg-blue-50 group-hover:bg-blue-100' : 'bg-gray-100 group-hover:bg-gray-200'}`}>
+                      {getProviderIcon(provider.type)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-gray-900 text-base truncate">{provider.name}</p>
+                      <span className={`inline-block mt-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${getTypeBadge(provider.type)}`}>
+                        {provider.type}
+                      </span>
+                    </div>
+                    <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-red-500 transition-colors flex-shrink-0" />
+                  </motion.button>
+                ))}
+              </div>
+            )}
+          </motion.div>
+        </main>
+      </div>
+    );
+  }
+
+  // ── Screens: Guest & Staff (wrapped in new appView system) ──────────────────
   return (
     <div className="min-h-screen bg-[#F8F9FA] text-[#1A1A1A] font-sans">
       {/* Navigation */}
       <nav className="bg-white border-b border-black/5 px-6 py-4 flex justify-between items-center sticky top-0 z-50">
         <div className="flex items-center gap-2">
+          {/* Back to landing button */}
+          {appView === 'guest' && (
+            <button
+              onClick={() => setAppView('guestSelectProvider')}
+              className="p-2 text-gray-400 hover:text-gray-600 transition-colors mr-1"
+              title="Back to property selection"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+          )}
           <div className="bg-red-600 p-2 rounded-lg">
             <Shield className="text-white w-6 h-6" />
           </div>
-          <h1 className="text-xl font-bold tracking-tight">SafeStay Hub</h1>
+          <div>
+            <h1 className="text-xl font-bold tracking-tight">SafeStay Hub</h1>
+            {/* Provider badge in nav */}
+            {appView === 'staff' && providerSession && (
+              <p className="text-[10px] text-gray-400 font-semibold">
+                {providerSession.provider.name} · {providerSession.provider.type}
+              </p>
+            )}
+          </div>
         </div>
         <div className="flex bg-gray-100 p-1 rounded-full">
           <button 
-            onClick={() => setView('guest')}
-            className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${view === 'guest' ? 'bg-white shadow-sm text-red-600' : 'text-gray-500 hover:text-gray-700'}`}
+            onClick={() => setAppView('guest')}
+            className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${appView === 'guest' ? 'bg-white shadow-sm text-red-600' : 'text-gray-500 hover:text-gray-700'}`}
           >
             Guest Portal
           </button>
           <button 
             onClick={() => {
-              setView('staff');
+              setAppView('staff');
               setShowSettings(false);
             }}
-            className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${view === 'staff' ? 'bg-white shadow-sm text-red-600' : 'text-gray-500 hover:text-gray-700'}`}
+            className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${appView === 'staff' ? 'bg-white shadow-sm text-red-600' : 'text-gray-500 hover:text-gray-700'}`}
           >
             Staff Dashboard
           </button>
         </div>
-        {view === 'staff' && isStaffLoggedIn && (
+        {appView === 'staff' && isStaffLoggedIn && (
           <div className="flex items-center gap-2">
             <button 
               onClick={() => setShowSettings(!showSettings)}
@@ -653,7 +1389,7 @@ export default function App() {
               <SettingsIcon className="w-5 h-5" />
             </button>
             <button 
-              onClick={handleLogout}
+              onClick={handleProviderLogout}
               className="p-2 text-red-400 hover:text-red-600 transition-colors"
             >
               <LogOut className="w-5 h-5" />
@@ -663,8 +1399,19 @@ export default function App() {
       </nav>
 
       <main className="max-w-7xl mx-auto p-6">
-        {view === 'guest' ? (
+        {appView === 'guest' ? (
           <div className="max-w-2xl mx-auto py-12">
+            {/* Reporting-to badge */}
+            {selectedProvider && (
+              <div className="flex items-center gap-2 mb-6 bg-white border border-black/5 rounded-2xl px-4 py-3 shadow-sm w-fit mx-auto">
+                <Building2 className="w-4 h-4 text-red-500" />
+                <span className="text-sm text-gray-600 font-medium">Reporting to: <strong className="text-gray-900">{selectedProvider.name}</strong></span>
+                <span className={`ml-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${selectedProvider.type === 'Hotel' ? 'bg-red-100 text-red-700' : selectedProvider.type === 'Restaurant' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}`}>
+                  {selectedProvider.type}
+                </span>
+              </div>
+            )}
+
             {isIpBlocked ? (
               <motion.div 
                 initial={{ opacity: 0, scale: 0.95 }}
@@ -840,6 +1587,60 @@ export default function App() {
             </motion.div>
             )}
           </div>
+        ) : providerSession && !staffPinVerified ? (
+          /* ── Staff PIN Screen ──────────────────────────────────────────── */
+          <div className="max-w-md mx-auto py-20">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-white rounded-3xl p-8 shadow-xl border border-black/5"
+            >
+              <div className="text-center mb-8">
+                <div className="w-16 h-16 bg-gray-900 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Key className="text-white w-8 h-8" />
+                </div>
+                <p className="text-xs text-gray-400 font-semibold uppercase tracking-widest mb-1">Accessing: {providerSession.provider.name}</p>
+                <h2 className="text-2xl font-bold">Staff Access</h2>
+                <p className="text-gray-500 text-sm mt-1">Enter your device PIN to continue. This PIN is stored only on this device.</p>
+              </div>
+              <form onSubmit={handlePinSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-gray-400 uppercase mb-1 tracking-wider">Device PIN</label>
+                  <div className="relative">
+                    <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="password"
+                      value={enteredPin}
+                      onChange={(e) => setEnteredPin(e.target.value)}
+                      required
+                      autoFocus
+                      placeholder="••••••••"
+                      className="w-full bg-gray-50 border-none rounded-xl pl-12 pr-4 py-3 focus:ring-2 focus:ring-gray-900 outline-none text-sm tracking-widest"
+                    />
+                  </div>
+                </div>
+                {pinError && <p className="text-xs text-red-600 font-bold text-center bg-red-50 py-2 rounded-lg">{pinError}</p>}
+                <button
+                  type="submit"
+                  className="w-full bg-gray-900 hover:bg-black text-white font-bold py-4 rounded-xl transition-all uppercase tracking-wider text-sm"
+                >
+                  Unlock Dashboard
+                </button>
+              </form>
+              <p className="text-[10px] text-center text-gray-400 mt-5 font-medium">
+                Default PIN is <span className="font-mono font-bold">staff@123</span> — change it in Settings after login
+              </p>
+              <div className="text-center mt-3">
+                <button
+                  type="button"
+                  onClick={handleProviderLogout}
+                  className="text-xs text-gray-400 hover:text-gray-700 font-semibold transition-colors"
+                >
+                  ← Back
+                </button>
+              </div>
+            </motion.div>
+          </div>
         ) : !isStaffLoggedIn ? (
           <div className="max-w-md mx-auto py-20">
             <motion.div 
@@ -902,7 +1703,7 @@ export default function App() {
               className="bg-white rounded-3xl p-8 shadow-xl border border-black/5"
             >
               <div className="flex items-center gap-4 mb-8">
-                <button onClick={() => setShowSettings(false)} className="p-2 hover:bg-gray-100 rounded-lg transition-all">
+                <button onClick={() => { setShowSettings(false); setShowChangePinForm(false); setPinChangeStatus(''); }} className="p-2 hover:bg-gray-100 rounded-lg transition-all">
                   <ChevronRight className="w-5 h-5 rotate-180" />
                 </button>
                 <h2 className="text-2xl font-bold">Account Settings</h2>
@@ -951,6 +1752,72 @@ export default function App() {
                   UPDATE CREDENTIALS
                 </button>
               </form>
+
+              {/* Change Staff PIN */}
+              <div className="mt-8 pt-6 border-t border-gray-100">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="text-sm font-bold text-gray-800">Change Staff PIN</h3>
+                    <p className="text-xs text-gray-400 mt-0.5">Device-local PIN for dashboard access</p>
+                  </div>
+                  {!showChangePinForm && (
+                    <button
+                      type="button"
+                      onClick={() => { setShowChangePinForm(true); setPinChangeStatus(''); }}
+                      className="px-4 py-2 bg-gray-900 text-white text-xs font-bold rounded-xl hover:bg-black transition-all uppercase tracking-wider"
+                    >
+                      Change PIN
+                    </button>
+                  )}
+                </div>
+                {showChangePinForm && (
+                  <form onSubmit={handleChangePin} className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-bold text-gray-400 uppercase mb-1 tracking-wider">Current PIN</label>
+                      <input
+                        type="password"
+                        value={oldPinInput}
+                        onChange={(e) => setOldPinInput(e.target.value)}
+                        required
+                        placeholder="••••••••"
+                        className="w-full bg-gray-50 border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-gray-900 outline-none text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-400 uppercase mb-1 tracking-wider">New PIN</label>
+                      <input
+                        type="password"
+                        value={newPinInput}
+                        onChange={(e) => setNewPinInput(e.target.value)}
+                        required
+                        minLength={4}
+                        placeholder="Min 4 characters"
+                        className="w-full bg-gray-50 border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-gray-900 outline-none text-sm"
+                      />
+                    </div>
+                    {pinChangeStatus && (
+                      <p className={`text-xs font-bold text-center py-2 rounded-lg ${pinChangeStatus.includes('successfully') ? 'text-green-700 bg-green-50' : 'text-red-600 bg-red-50'}`}>
+                        {pinChangeStatus}
+                      </p>
+                    )}
+                    <div className="flex gap-2">
+                      <button
+                        type="submit"
+                        className="flex-1 bg-gray-900 hover:bg-black text-white font-bold py-3 rounded-xl transition-all text-sm uppercase tracking-wider"
+                      >
+                        Update PIN
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setShowChangePinForm(false); setPinChangeStatus(''); setOldPinInput(''); setNewPinInput(''); }}
+                        className="px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold rounded-xl transition-all text-sm"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </div>
             </motion.div>
           </div>
         ) : (
@@ -983,11 +1850,78 @@ export default function App() {
                   <LayoutDashboard className="w-4 h-4" />
                   Analytics
                 </button>
+                <button
+                  onClick={() => { setActiveTab('blocked'); fetchBlockedIps(); }}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${activeTab === 'blocked' ? 'bg-red-600 text-white shadow-lg shadow-red-600/20' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                >
+                  <Ban className="w-4 h-4" />
+                  Blocked IPs
+                </button>
               </div>
             </div>
 
             {/* Stats Overview */}
-            {activeTab === 'stats' ? (
+            {activeTab === 'blocked' ? (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-xl font-bold">Blocked Devices</h3>
+                    <p className="text-gray-500 text-sm">IPs blocked due to repeated fake or false emergency reports.</p>
+                  </div>
+                  <button
+                    onClick={fetchBlockedIps}
+                    className="flex items-center gap-2 px-4 py-2 bg-white border border-black/5 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-all shadow-sm"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    Refresh
+                  </button>
+                </div>
+
+                {blockedIpsLoading ? (
+                  <div className="py-20 flex justify-center">
+                    <div className="w-8 h-8 border-2 border-gray-200 border-t-red-600 rounded-full animate-spin" />
+                  </div>
+                ) : blockedIps.length === 0 ? (
+                  <div className="py-20 text-center space-y-4">
+                    <div className="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center mx-auto">
+                      <CheckCircle2 className="w-8 h-8 text-green-500" />
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-bold text-gray-400">No Blocked Devices</h3>
+                      <p className="text-gray-400 text-sm">All users are currently in good standing.</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-3">
+                    {blockedIps.map((entry) => (
+                      <div
+                        key={entry.ip}
+                        className="bg-white rounded-2xl p-5 border border-black/5 shadow-sm flex flex-col sm:flex-row sm:items-center gap-4"
+                      >
+                        <div className="flex-1 space-y-1.5">
+                          <div className="flex items-center gap-3 flex-wrap">
+                            <span className="font-mono text-sm font-bold bg-gray-100 text-gray-800 px-3 py-1 rounded-lg">{entry.ip}</span>
+                            <span className="bg-red-100 text-red-700 text-xs font-bold px-2.5 py-1 rounded-full">
+                              Fake Reports: {entry.fakeCount}
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-400 font-medium">
+                            Last Report: {entry.lastFalseReport ? new Date(entry.lastFalseReport).toLocaleString() : 'N/A'}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => handleUnblockIp(entry.ip)}
+                          className="flex items-center gap-2 px-4 py-2.5 bg-green-50 hover:bg-green-100 text-green-700 font-bold text-sm rounded-xl transition-all border border-green-200 flex-shrink-0"
+                        >
+                          <RefreshCw className="w-4 h-4" />
+                          Unblock
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : activeTab === 'stats' ? (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div className="bg-white p-8 rounded-3xl border border-black/5 shadow-sm">
                   <div className="flex items-center justify-between mb-6">
@@ -1258,7 +2192,7 @@ export default function App() {
       </AnimatePresence>
 
       {/* Emergency Floating Action (Staff View) */}
-      {view === 'staff' && (
+      {appView === 'staff' && (
         <div className="fixed bottom-8 right-8 flex flex-col items-end gap-4">
           <div className="bg-black text-white p-4 rounded-2xl shadow-2xl border border-white/10 flex items-center gap-4 animate-pulse">
             <div className="bg-red-600 p-2 rounded-lg">

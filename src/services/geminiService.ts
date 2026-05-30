@@ -84,6 +84,7 @@ export function localHeuristicAnalysis(message: string): EmergencyAnalysis {
 }
 
 export async function analyzeEmergency(message: string): Promise<EmergencyAnalysis> {
+  console.log("DEBUG: My API Key is ->", apiKey ? "FOUND! 🎉" : "NOT FOUND ❌");
   if (!ai) {
     console.warn("GEMINI_API_KEY is not defined. Using client-side heuristic analyzer fallback.");
     return localHeuristicAnalysis(message);
