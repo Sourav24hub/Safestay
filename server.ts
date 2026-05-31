@@ -92,14 +92,14 @@ async function startServer() {
 
   // POST /api/providers/signup
   app.post("/api/providers/signup", async (req, res) => {
-    const { name, type, email, loginId, password } = req.body;
+    const { name, type, email, loginId, password, staffId, staffPassword } = req.body;
 
     try {
       const passwordHash = await bcrypt.hash(password, 10);
 
       const { data, error } = await supabase
         .from("providers")
-        .insert([{ name, type, email, login_id: loginId, password_hash: passwordHash }])
+        .insert([{ name, type, email, login_id: loginId, password_hash: passwordHash, staff_id: staffId, staff_password: staffPassword }])
         .select("id, name, type, login_id")
         .single();
 
@@ -223,6 +223,51 @@ async function startServer() {
       return res.json({ success: true, message: "OTP sent to your registered email address." });
     } catch (err) {
       console.error("Forgot password error:", err);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // POST /api/providers/staff-login
+  app.post("/api/providers/staff-login", async (req, res) => {
+    const { providerId, staffId, staffPassword } = req.body;
+    try {
+      const { data: provider, error } = await supabase
+        .from("providers")
+        .select("staff_id, staff_password")
+        .eq("id", providerId)
+        .single();
+      if (error || !provider) {
+        return res.status(404).json({ error: "Provider not found" });
+      }
+      if (provider.staff_id === staffId && provider.staff_password === staffPassword) {
+        return res.json({ success: true });
+      }
+      return res.status(401).json({ error: "Invalid staff credentials" });
+    } catch (err) {
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // POST /api/providers/staff-change-password
+  app.post("/api/providers/staff-change-password", async (req, res) => {
+    const { providerId, oldStaffPassword, newStaffId, newStaffPassword } = req.body;
+    try {
+      const { data: provider, error } = await supabase
+        .from("providers")
+        .select("staff_password")
+        .eq("id", providerId)
+        .single();
+      if (error || !provider) {
+        return res.status(404).json({ error: "Provider not found" });
+      }
+      if (provider.staff_password !== oldStaffPassword) {
+        return res.status(401).json({ error: "Incorrect current staff password" });
+      }
+      const updates: any = { staff_password: newStaffPassword };
+      if (newStaffId) updates.staff_id = newStaffId;
+      await supabase.from("providers").update(updates).eq("id", providerId);
+      return res.json({ success: true });
+    } catch (err) {
       return res.status(500).json({ error: "Internal server error" });
     }
   });

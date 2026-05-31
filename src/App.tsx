@@ -127,18 +127,13 @@ export default function App() {
   // LocalStorage Fallback state
   const [useLocalStorageFallback, setUseLocalStorageFallback] = useState(false);
 
-  // ── Staff PIN state ─────────────────────────────────────────────────────────
-  const [staffPinVerified, setStaffPinVerified] = useState(false);
-  const [enteredPin, setEnteredPin] = useState('');
-  const [pinError, setPinError] = useState('');
-  const [showChangePinForm, setShowChangePinForm] = useState(false);
-  const [oldPinInput, setOldPinInput] = useState('');
-  const [newPinInput, setNewPinInput] = useState('');
-  const [pinChangeStatus, setPinChangeStatus] = useState('');
-
   // ── Blocked IPs state ───────────────────────────────────────────────────────
   const [blockedIps, setBlockedIps] = useState<{ ip: string, fakeCount: number, cooldownCount: number, lastFalseReport: string }[]>([]);
   const [blockedIpsLoading, setBlockedIpsLoading] = useState(false);
+
+  // Signup extra fields
+  const [signupStaffId, setSignupStaffId] = useState('');
+  const [signupStaffPassword, setSignupStaffPassword] = useState('');
 
   // LocalStorage helper utilities for robust hosting fallbacks
   const getLocalAlerts = (pid?: string): Alert[] => {
@@ -514,57 +509,32 @@ export default function App() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
-    
-    const tryLocalLoginFallback = () => {
-      setUseLocalStorageFallback(true);
-      const creds = getLocalCreds();
-      if (loginId === creds.id && loginPass === creds.pass) {
-        setIsStaffLoggedIn(true);
-        localStorage.setItem('staffSession', JSON.stringify({
-          token: "mock-session-fallback-token",
-          expiry: Date.now() + 24 * 60 * 60 * 1000 // 24 hours
-        }));
-      } else {
-        setLoginError("Invalid credentials");
-      }
-    };
 
-    if (useLocalStorageFallback) {
-      tryLocalLoginFallback();
+    const providerId = providerSession?.provider.id;
+
+    if (!providerId) {
+      setLoginError('No provider session found. Please log in again.');
       return;
     }
 
     try {
-      const res = await fetch('/api/auth/login', {
+      const res = await fetch('/api/providers/staff-login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: loginId, pass: loginPass })
+        body: JSON.stringify({ providerId, staffId: loginId, staffPassword: loginPass })
       });
-      
-      const contentType = res.headers.get("content-type") || "";
-      if (res.ok && contentType.includes("application/json")) {
-        const data = await res.json();
-        setIsStaffLoggedIn(true);
-        localStorage.setItem('staffSession', JSON.stringify({
-          token: data.token,
-          expiry: Date.now() + 24 * 60 * 60 * 1000 // 24 hours
-        }));
-      } else {
-        // Fall back gracefully if 404/HTML (e.g. static hosting on Netlify)
-        if (res.status === 404 || contentType.includes("text/html")) {
-          tryLocalLoginFallback();
-        } else {
-          try {
-            const data = await res.json();
-            setLoginError(data.error || "Login failed");
-          } catch (jsonErr) {
-            tryLocalLoginFallback();
-          }
-        }
+      const data = await res.json();
+      if (!res.ok) {
+        setLoginError(data.error || 'Invalid credentials');
+        return;
       }
+      setIsStaffLoggedIn(true);
+      localStorage.setItem('staffSession', JSON.stringify({
+        token: 'staff-session-' + Date.now(),
+        expiry: Date.now() + 24 * 60 * 60 * 1000
+      }));
     } catch (err) {
-      console.warn("Login endpoint not reachable. Falling back to local credentials.", err);
-      tryLocalLoginFallback();
+      setLoginError('Network error. Please try again.');
     }
   };
 
@@ -576,42 +546,30 @@ export default function App() {
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setSettingsStatus('');
-    
-    if (useLocalStorageFallback) {
-      const creds = getLocalCreds();
-      if (oldPass === creds.pass) {
-        const updated = {
-          id: newId ? newId : creds.id,
-          pass: newPass
-        };
-        saveLocalCreds(updated);
-        setSettingsStatus("Credentials updated successfully.");
-        setOldPass('');
-        setNewPass('');
-        setNewId('');
-      } else {
-        setSettingsStatus("Incorrect current password");
-      }
+
+    const providerId = providerSession?.provider.id;
+    if (!providerId) {
+      setSettingsStatus('No provider session found.');
       return;
     }
 
     try {
-      const res = await fetch('/api/auth/change-password', {
+      const res = await fetch('/api/providers/staff-change-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ oldPass, newPass, newId })
+        body: JSON.stringify({ providerId, oldStaffPassword: oldPass, newStaffId: newId, newStaffPassword: newPass })
       });
       if (res.ok) {
-        setSettingsStatus("Credentials updated successfully.");
+        setSettingsStatus('Credentials updated successfully.');
         setOldPass('');
         setNewPass('');
         setNewId('');
       } else {
         const data = await res.json();
-        setSettingsStatus(data.error);
+        setSettingsStatus(data.error || 'Failed to update credentials.');
       }
     } catch (err) {
-      setSettingsStatus("Failed to update credentials.");
+      setSettingsStatus('Failed to update credentials.');
     }
   };
 
@@ -705,6 +663,10 @@ export default function App() {
       setSignupError('Passwords do not match');
       return;
     }
+    if (!signupStaffId.trim() || !signupStaffPassword.trim()) {
+      setSignupError('Staff ID and Staff Password are required.');
+      return;
+    }
     try {
       const res = await fetch('/api/providers/signup', {
         method: 'POST',
@@ -714,7 +676,9 @@ export default function App() {
           type: signupType,
           email: signupEmail,
           loginId: signupLoginId,
-          password: signupPassword
+          password: signupPassword,
+          staffId: signupStaffId,
+          staffPassword: signupStaffPassword
         })
       });
       const data = await res.json();
@@ -810,43 +774,7 @@ export default function App() {
     localStorage.removeItem('safestay_provider_session');
     setIsStaffLoggedIn(false);
     localStorage.removeItem('staffSession');
-    setStaffPinVerified(false);
     setAppView('landing');
-  };
-
-  // ── Staff PIN helpers ───────────────────────────────────────────────────────
-  const getStaffPin = () => {
-    const providerId = providerSession?.provider.id;
-    return localStorage.getItem(`safestay_staff_pin_${providerId}`) || 'staff@123';
-  };
-
-  const handlePinSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setPinError('');
-    if (enteredPin === getStaffPin()) {
-      setStaffPinVerified(true);
-      setEnteredPin('');
-    } else {
-      setPinError('Incorrect PIN. Please try again.');
-    }
-  };
-
-  const handleChangePin = (e: React.FormEvent) => {
-    e.preventDefault();
-    setPinChangeStatus('');
-    if (oldPinInput !== getStaffPin()) {
-      setPinChangeStatus('Incorrect current PIN.');
-      return;
-    }
-    if (newPinInput.length < 4) {
-      setPinChangeStatus('New PIN must be at least 4 characters.');
-      return;
-    }
-    localStorage.setItem(`safestay_staff_pin_${providerSession?.provider.id}`, newPinInput);
-    setPinChangeStatus('Staff PIN updated successfully.');
-    setOldPinInput('');
-    setNewPinInput('');
-    setTimeout(() => setShowChangePinForm(false), 1500);
   };
 
   // ── Blocked IPs helpers ─────────────────────────────────────────────────────
@@ -896,12 +824,12 @@ export default function App() {
 
   // Auto-refresh blocked IPs every 10s when that tab is active
   useEffect(() => {
-    if (appView === 'staff' && staffPinVerified && isStaffLoggedIn && activeTab === 'blocked') {
+    if (appView === 'staff' && isStaffLoggedIn && activeTab === 'blocked') {
       fetchBlockedIps();
       const interval = setInterval(fetchBlockedIps, 10000);
       return () => clearInterval(interval);
     }
-  }, [appView, staffPinVerified, isStaffLoggedIn, activeTab]);
+  }, [appView, isStaffLoggedIn, activeTab]);
 
   // ── Screen: Landing ─────────────────────────────────────────────────────────
   if (appView === 'landing') {
@@ -1240,6 +1168,33 @@ export default function App() {
                             className="w-full bg-gray-50 border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-red-500 outline-none text-sm"
                           />
                         </div>
+                        <div className="pt-2 border-t border-gray-100">
+                          <p className="text-[10px] text-gray-400 uppercase font-bold tracking-wider mb-3">Staff Access Credentials</p>
+                          <div className="space-y-3">
+                            <div>
+                              <label className="block text-xs font-bold text-gray-400 uppercase mb-1 tracking-wider">Staff ID</label>
+                              <input
+                                type="text"
+                                value={signupStaffId}
+                                onChange={(e) => setSignupStaffId(e.target.value)}
+                                required
+                                placeholder="e.g. frontdesk01"
+                                className="w-full bg-gray-50 border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-red-500 outline-none text-sm"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-bold text-gray-400 uppercase mb-1 tracking-wider">Staff Password</label>
+                              <input
+                                type="password"
+                                value={signupStaffPassword}
+                                onChange={(e) => setSignupStaffPassword(e.target.value)}
+                                required
+                                placeholder="••••••••"
+                                className="w-full bg-gray-50 border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-red-500 outline-none text-sm"
+                              />
+                            </div>
+                          </div>
+                        </div>
                         {signupError && <p className="text-xs text-red-600 font-bold text-center bg-red-50 py-2 rounded-lg">{signupError}</p>}
                         <button type="submit" className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-4 rounded-xl transition-all uppercase tracking-wider shadow-lg shadow-red-600/20 text-sm">
                           Create Account
@@ -1340,7 +1295,7 @@ export default function App() {
       {/* Navigation */}
       <nav className="bg-white border-b border-black/5 px-6 py-4 flex justify-between items-center sticky top-0 z-50">
         <div className="flex items-center gap-2">
-          {/* Back to landing button */}
+          {/* Back arrow — guest view only */}
           {appView === 'guest' && (
             <button
               onClick={() => setAppView('guestSelectProvider')}
@@ -1355,7 +1310,7 @@ export default function App() {
           </div>
           <div>
             <h1 className="text-xl font-bold tracking-tight">SafeStay Hub</h1>
-            {/* Provider badge in nav */}
+            {/* Provider badge — staff view only */}
             {appView === 'staff' && providerSession && (
               <p className="text-[10px] text-gray-400 font-semibold">
                 {providerSession.provider.name} · {providerSession.provider.type}
@@ -1363,32 +1318,16 @@ export default function App() {
             )}
           </div>
         </div>
-        <div className="flex bg-gray-100 p-1 rounded-full">
-          <button 
-            onClick={() => setAppView('guest')}
-            className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${appView === 'guest' ? 'bg-white shadow-sm text-red-600' : 'text-gray-500 hover:text-gray-700'}`}
-          >
-            Guest Portal
-          </button>
-          <button 
-            onClick={() => {
-              setAppView('staff');
-              setShowSettings(false);
-            }}
-            className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${appView === 'staff' ? 'bg-white shadow-sm text-red-600' : 'text-gray-500 hover:text-gray-700'}`}
-          >
-            Staff Dashboard
-          </button>
-        </div>
+        {/* Settings + logout — staff view, logged in only */}
         {appView === 'staff' && isStaffLoggedIn && (
           <div className="flex items-center gap-2">
-            <button 
+            <button
               onClick={() => setShowSettings(!showSettings)}
               className="p-2 text-gray-400 hover:text-gray-600 transition-colors"
             >
               <SettingsIcon className="w-5 h-5" />
             </button>
-            <button 
+            <button
               onClick={handleProviderLogout}
               className="p-2 text-red-400 hover:text-red-600 transition-colors"
             >
@@ -1587,60 +1526,6 @@ export default function App() {
             </motion.div>
             )}
           </div>
-        ) : providerSession && !staffPinVerified ? (
-          /* ── Staff PIN Screen ──────────────────────────────────────────── */
-          <div className="max-w-md mx-auto py-20">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="bg-white rounded-3xl p-8 shadow-xl border border-black/5"
-            >
-              <div className="text-center mb-8">
-                <div className="w-16 h-16 bg-gray-900 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Key className="text-white w-8 h-8" />
-                </div>
-                <p className="text-xs text-gray-400 font-semibold uppercase tracking-widest mb-1">Accessing: {providerSession.provider.name}</p>
-                <h2 className="text-2xl font-bold">Staff Access</h2>
-                <p className="text-gray-500 text-sm mt-1">Enter your device PIN to continue. This PIN is stored only on this device.</p>
-              </div>
-              <form onSubmit={handlePinSubmit} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-gray-400 uppercase mb-1 tracking-wider">Device PIN</label>
-                  <div className="relative">
-                    <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    <input
-                      type="password"
-                      value={enteredPin}
-                      onChange={(e) => setEnteredPin(e.target.value)}
-                      required
-                      autoFocus
-                      placeholder="••••••••"
-                      className="w-full bg-gray-50 border-none rounded-xl pl-12 pr-4 py-3 focus:ring-2 focus:ring-gray-900 outline-none text-sm tracking-widest"
-                    />
-                  </div>
-                </div>
-                {pinError && <p className="text-xs text-red-600 font-bold text-center bg-red-50 py-2 rounded-lg">{pinError}</p>}
-                <button
-                  type="submit"
-                  className="w-full bg-gray-900 hover:bg-black text-white font-bold py-4 rounded-xl transition-all uppercase tracking-wider text-sm"
-                >
-                  Unlock Dashboard
-                </button>
-              </form>
-              <p className="text-[10px] text-center text-gray-400 mt-5 font-medium">
-                Default PIN is <span className="font-mono font-bold">staff@123</span> — change it in Settings after login
-              </p>
-              <div className="text-center mt-3">
-                <button
-                  type="button"
-                  onClick={handleProviderLogout}
-                  className="text-xs text-gray-400 hover:text-gray-700 font-semibold transition-colors"
-                >
-                  ← Back
-                </button>
-              </div>
-            </motion.div>
-          </div>
         ) : !isStaffLoggedIn ? (
           <div className="max-w-md mx-auto py-20">
             <motion.div 
@@ -1703,7 +1588,7 @@ export default function App() {
               className="bg-white rounded-3xl p-8 shadow-xl border border-black/5"
             >
               <div className="flex items-center gap-4 mb-8">
-                <button onClick={() => { setShowSettings(false); setShowChangePinForm(false); setPinChangeStatus(''); }} className="p-2 hover:bg-gray-100 rounded-lg transition-all">
+                <button onClick={() => setShowSettings(false)} className="p-2 hover:bg-gray-100 rounded-lg transition-all">
                   <ChevronRight className="w-5 h-5 rotate-180" />
                 </button>
                 <h2 className="text-2xl font-bold">Account Settings</h2>
@@ -1752,72 +1637,6 @@ export default function App() {
                   UPDATE CREDENTIALS
                 </button>
               </form>
-
-              {/* Change Staff PIN */}
-              <div className="mt-8 pt-6 border-t border-gray-100">
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <h3 className="text-sm font-bold text-gray-800">Change Staff PIN</h3>
-                    <p className="text-xs text-gray-400 mt-0.5">Device-local PIN for dashboard access</p>
-                  </div>
-                  {!showChangePinForm && (
-                    <button
-                      type="button"
-                      onClick={() => { setShowChangePinForm(true); setPinChangeStatus(''); }}
-                      className="px-4 py-2 bg-gray-900 text-white text-xs font-bold rounded-xl hover:bg-black transition-all uppercase tracking-wider"
-                    >
-                      Change PIN
-                    </button>
-                  )}
-                </div>
-                {showChangePinForm && (
-                  <form onSubmit={handleChangePin} className="space-y-3">
-                    <div>
-                      <label className="block text-xs font-bold text-gray-400 uppercase mb-1 tracking-wider">Current PIN</label>
-                      <input
-                        type="password"
-                        value={oldPinInput}
-                        onChange={(e) => setOldPinInput(e.target.value)}
-                        required
-                        placeholder="••••••••"
-                        className="w-full bg-gray-50 border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-gray-900 outline-none text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-400 uppercase mb-1 tracking-wider">New PIN</label>
-                      <input
-                        type="password"
-                        value={newPinInput}
-                        onChange={(e) => setNewPinInput(e.target.value)}
-                        required
-                        minLength={4}
-                        placeholder="Min 4 characters"
-                        className="w-full bg-gray-50 border-none rounded-xl px-4 py-3 focus:ring-2 focus:ring-gray-900 outline-none text-sm"
-                      />
-                    </div>
-                    {pinChangeStatus && (
-                      <p className={`text-xs font-bold text-center py-2 rounded-lg ${pinChangeStatus.includes('successfully') ? 'text-green-700 bg-green-50' : 'text-red-600 bg-red-50'}`}>
-                        {pinChangeStatus}
-                      </p>
-                    )}
-                    <div className="flex gap-2">
-                      <button
-                        type="submit"
-                        className="flex-1 bg-gray-900 hover:bg-black text-white font-bold py-3 rounded-xl transition-all text-sm uppercase tracking-wider"
-                      >
-                        Update PIN
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => { setShowChangePinForm(false); setPinChangeStatus(''); setOldPinInput(''); setNewPinInput(''); }}
-                        className="px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold rounded-xl transition-all text-sm"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </form>
-                )}
-              </div>
             </motion.div>
           </div>
         ) : (
